@@ -1,0 +1,384 @@
+### =========================================================================
+### SIGAU — Escenarios de prueba para el HTTP Client de WebStorm
+### 1) npm run db:init   2) npm run dev   3) elige el entorno "dev" y ejecuta en orden (▶ Run All)
+### Cada bloque indica el resultado esperado. Los ids se basan en los datos de 02_seed.sql.
+### =========================================================================
+
+### Salud de la API y conexión a MySQL  → 200
+GET {{host}}/api/health
+
+### =========================== PERSONAS (RF-01, RF-02) ===========================
+
+### Persona con ambos roles (Diana)  → 200, es_estudiante = 1 y es_docente = 1
+GET {{host}}/api/personas/10
+
+### Listar sólo docentes  → 200
+GET {{host}}/api/personas?rol=docente
+
+### Registrar estudiante nuevo  → 201
+POST {{host}}/api/personas
+Content-Type: application/json
+
+{
+  "tipo_documento": "CC",
+  "numero_documento": "1009998887",
+  "nombres": "Sofía",
+  "apellidos": "Ríos Medina",
+  "email": "sofia.rios@sigau.edu.co",
+  "telefono": "3015550101",
+  "estudiante": { "id_programa": 1, "fecha_ingreso": "2026-07-27" }
+}
+
+> {% client.global.set("idSofia", response.body.id_persona); %}
+
+### RB-01 documento duplicado  → 409
+POST {{host}}/api/personas
+Content-Type: application/json
+
+{
+  "tipo_documento": "CC", "numero_documento": "1001001001",
+  "nombres": "Otra", "apellidos": "Persona", "email": "otra@sigau.edu.co",
+  "docente": { "especialidad": "Física" }
+}
+
+### RB-02 correo duplicado  → 409
+POST {{host}}/api/personas
+Content-Type: application/json
+
+{
+  "tipo_documento": "CC", "numero_documento": "555000111",
+  "nombres": "Otra", "apellidos": "Persona", "email": "laura.gomez@sigau.edu.co",
+  "docente": {}
+}
+
+### Especialización total: persona sin rol  → 400
+POST {{host}}/api/personas
+Content-Type: application/json
+
+{ "tipo_documento": "CC", "numero_documento": "555000222", "nombres": "Sin", "apellidos": "Rol", "email": "sinrol@sigau.edu.co" }
+
+### RB-03 estudiante con programa inexistente  → 422
+POST {{host}}/api/personas
+Content-Type: application/json
+
+{
+  "tipo_documento": "CC", "numero_documento": "555000333", "nombres": "Pedro", "apellidos": "Prueba",
+  "email": "pedro.prueba@sigau.edu.co", "estudiante": { "id_programa": 99, "fecha_ingreso": "2026-07-27" }
+}
+
+### Agregar rol docente a Sofía (rol solapado)  → 201
+POST {{host}}/api/personas/{{idSofia}}/docente
+Content-Type: application/json
+
+{ "especialidad": "Monitoría de programación" }
+
+### Quitar el único rol de un docente puro (Ricardo)  → 422 S-02
+DELETE {{host}}/api/personas/11/docente
+
+### ======================= PROGRAMAS Y PLAN (RF-03, RF-05) =======================
+
+### Programa con su plan de estudio  → 200
+GET {{host}}/api/programas/1
+
+### RB-04 asignatura repetida en el plan  → 409
+POST {{host}}/api/programas/1/plan
+Content-Type: application/json
+
+{ "id_asignatura": 4, "semestre": 3 }
+
+### RB-05 semestre no positivo  → 400
+POST {{host}}/api/programas/1/plan
+Content-Type: application/json
+
+{ "id_asignatura": 8, "semestre": 0 }
+
+### ===================== ASIGNATURAS Y PRERREQUISITOS (RF-04, RF-12) =====================
+
+### Crear asignatura nueva  → 201
+POST {{host}}/api/asignaturas
+Content-Type: application/json
+
+{ "codigo": "sis301", "nombre": "Ingeniería de Software", "creditos": 3 }
+
+> {% client.global.set("idSis301", response.body.id_asignatura); %}
+
+### Incluirla en el plan de Sistemas, semestre 5  → 201
+POST {{host}}/api/programas/1/plan
+Content-Type: application/json
+
+{ "id_asignatura": {{idSis301}}, "semestre": 5, "obligatoria": true }
+
+### Código de asignatura repetido  → 409
+POST {{host}}/api/asignaturas
+Content-Type: application/json
+
+{ "codigo": "BD101", "nombre": "Otra", "creditos": 3 }
+
+### S-04 créditos en cero  → 400
+POST {{host}}/api/asignaturas
+Content-Type: application/json
+
+{ "codigo": "SIS999", "nombre": "Prueba", "creditos": 0 }
+
+### RB-13 prerrequisito de sí misma  → 422
+POST {{host}}/api/asignaturas/4/prerrequisitos
+Content-Type: application/json
+
+{ "id_asignatura_requerida": 4 }
+
+### RB-13 ciclo: PRG101 requeriría BD102 (BD102 -> BD101 -> PRG101)  → 422
+POST {{host}}/api/asignaturas/2/prerrequisitos
+Content-Type: application/json
+
+{ "id_asignatura_requerida": 5 }
+
+### Prerrequisitos de BD102  → 200
+GET {{host}}/api/asignaturas/5/prerrequisitos
+
+### =========================== PERIODOS (RF-06) ===========================
+
+### S-14 fechas incoherentes  → 422
+POST {{host}}/api/periodos
+Content-Type: application/json
+
+{ "nombre": "2027-2", "fecha_inicio": "2027-12-01", "fecha_fin": "2027-07-01" }
+
+### Transición inválida Cerrado -> Activo  → 422
+PATCH {{host}}/api/periodos/1/estado
+Content-Type: application/json
+
+{ "estado": "Activo" }
+
+### Oferta del periodo 2026-2  → 200
+GET {{host}}/api/periodos/2/oferta
+
+### =========================== GRUPOS (RF-07) ===========================
+
+### RB-07 código de grupo repetido en asignatura+periodo  → 409
+POST {{host}}/api/grupos
+Content-Type: application/json
+
+{ "id_asignatura": 4, "id_docente": 7, "id_periodo": 2, "codigo": "G1", "cupo": 20, "modalidad": "Presencial" }
+
+### Abrir grupo en periodo cerrado  → 422
+POST {{host}}/api/grupos
+Content-Type: application/json
+
+{ "id_asignatura": 4, "id_docente": 7, "id_periodo": 1, "codigo": "G9", "cupo": 20, "modalidad": "Presencial" }
+
+### RB-06 docente inexistente (Laura no es docente)  → 422
+POST {{host}}/api/grupos
+Content-Type: application/json
+
+{ "id_asignatura": 4, "id_docente": 1, "id_periodo": 2, "codigo": "G3", "cupo": 20, "modalidad": "Presencial" }
+
+### Abrir EST101 G2 (lo usaremos para probar cruces)  → 201
+POST {{host}}/api/grupos
+Content-Type: application/json
+
+{ "id_asignatura": 6, "id_docente": 8, "id_periodo": 2, "codigo": "G2", "cupo": 25, "modalidad": "Presencial" }
+
+> {% client.global.set("idGrupoEst2", response.body.id_grupo); %}
+
+### Abrir ING101 G1 con cupo 1 (para probar cupo lleno)  → 201
+POST {{host}}/api/grupos
+Content-Type: application/json
+
+{ "id_asignatura": 7, "id_docente": 11, "id_periodo": 2, "codigo": "G1", "cupo": 1, "modalidad": "Virtual" }
+
+> {% client.global.set("idGrupoIng", response.body.id_grupo); %}
+
+### ========================== HORARIOS (RF-10, §2.3) ==========================
+
+### RB-11 hora inicio >= hora fin  → 422
+POST {{host}}/api/grupos/10/horarios
+Content-Type: application/json
+
+{ "id_aula": 6, "dia_semana": "Viernes", "hora_inicio": "16:00", "hora_fin": "14:00" }
+
+### RB-12 aula con capacidad menor al cupo (B-301 = 15, cupo 25)  → 422
+POST {{host}}/api/grupos/10/horarios
+Content-Type: application/json
+
+{ "id_aula": 5, "dia_semana": "Viernes", "hora_inicio": "14:00", "hora_fin": "16:00" }
+
+### Cruce de aula: LAB-201 ocupado el lunes 9-11 por BD101 G1  → 422
+POST {{host}}/api/grupos/10/horarios
+Content-Type: application/json
+
+{ "id_aula": 3, "dia_semana": "Lunes", "hora_inicio": "09:00", "hora_fin": "11:00" }
+
+### Cruce de docente: Christian Duarte dicta BD101 G1 el lunes 9-11  → 422
+POST {{host}}/api/grupos/10/horarios
+Content-Type: application/json
+
+{ "id_aula": 6, "dia_semana": "Lunes", "hora_inicio": "10:00", "hora_fin": "12:00" }
+
+### Bloque válido para BD102  → 201
+POST {{host}}/api/grupos/10/horarios
+Content-Type: application/json
+
+{ "id_aula": 6, "dia_semana": "Viernes", "hora_inicio": "14:00", "hora_fin": "16:00" }
+
+### Horario de EST101 G2: lunes 9-11 en A-101 (choca con BD101 G1 para Valentina)  → 201
+POST {{host}}/api/grupos/{{idGrupoEst2}}/horarios
+Content-Type: application/json
+
+{ "id_aula": 1, "dia_semana": "Lunes", "hora_inicio": "09:00", "hora_fin": "11:00" }
+
+### Horario de ING101 G1: sábado 14-16 en AUD-01  → 201
+POST {{host}}/api/grupos/{{idGrupoIng}}/horarios
+Content-Type: application/json
+
+{ "id_aula": 6, "dia_semana": "Sábado", "hora_inicio": "14:00", "hora_fin": "16:00" }
+
+### Horarios por aula (RF-13)  → 200
+GET {{host}}/api/aulas/3/horarios?periodo=2
+
+### ====================== MATRÍCULAS E INSCRIPCIONES (RF-08, RF-09) ======================
+
+### RB-08 segunda matrícula de Laura en 2026-2  → 409
+POST {{host}}/api/matriculas
+Content-Type: application/json
+
+{ "id_persona_estudiante": 1, "id_periodo": 2 }
+
+### Estudiante Inactivo (Mateo) no puede matricularse  → 422
+POST {{host}}/api/matriculas
+Content-Type: application/json
+
+{ "id_persona_estudiante": 6, "id_periodo": 2 }
+
+### Matricular a Santiago en 2026-2  → 201
+POST {{host}}/api/matriculas
+Content-Type: application/json
+
+{ "id_persona_estudiante": 4, "id_periodo": 2 }
+
+> {% client.global.set("idMatSantiago", response.body.id_matricula); %}
+
+### RF-12 prerrequisito no aprobado: BD101 exige PRG101  → 422
+POST {{host}}/api/matriculas/{{idMatSantiago}}/detalles
+Content-Type: application/json
+
+{ "id_grupo": 4 }
+
+### Asignatura fuera del plan del programa (ANA501)  → 422
+POST {{host}}/api/matriculas/{{idMatSantiago}}/detalles
+Content-Type: application/json
+
+{ "id_grupo": 9 }
+
+### Grupo de otro periodo  → 422
+POST {{host}}/api/matriculas/{{idMatSantiago}}/detalles
+Content-Type: application/json
+
+{ "id_grupo": 1 }
+
+### Inscripción válida en MAT101 G1  → 201
+POST {{host}}/api/matriculas/{{idMatSantiago}}/detalles
+Content-Type: application/json
+
+{ "id_grupo": 12 }
+
+> {% client.global.set("idDetalleSantiago", response.body.id_detalle); %}
+
+### RB-09 misma inscripción repetida  → 409
+POST {{host}}/api/matriculas/{{idMatSantiago}}/detalles
+Content-Type: application/json
+
+{ "id_grupo": 12 }
+
+### Inscribir a Santiago en ING101 G1 (cupo 1)  → 201
+POST {{host}}/api/matriculas/{{idMatSantiago}}/detalles
+Content-Type: application/json
+
+{ "id_grupo": {{idGrupoIng}} }
+
+### Cupo lleno: Andrés en ING101 G1  → 422
+POST {{host}}/api/matriculas/8/detalles
+Content-Type: application/json
+
+{ "id_grupo": {{idGrupoIng}} }
+
+### S-10 misma asignatura en otro grupo: Laura ya cursa EST101 G1  → 422
+POST {{host}}/api/matriculas/7/detalles
+Content-Type: application/json
+
+{ "id_grupo": {{idGrupoEst2}} }
+
+### Cruce de horario del estudiante: Valentina tiene BD101 G1 el lunes 9-11  → 422
+POST {{host}}/api/matriculas/10/detalles
+Content-Type: application/json
+
+{ "id_grupo": {{idGrupoEst2}} }
+
+### Asignatura ya aprobada: Laura aprobó MAT101 (4.20) en 2026-1  → 422
+POST {{host}}/api/matriculas/7/detalles
+Content-Type: application/json
+
+{ "id_grupo": 12 }
+
+### Matrícula con detalles y créditos  → 200
+GET {{host}}/api/matriculas/{{idMatSantiago}}
+
+### ========================== CALIFICACIONES (RF-11) ==========================
+
+### RB-10 nota fuera de rango  → 400
+PUT {{host}}/api/detalles/{{idDetalleSantiago}}/calificacion
+Content-Type: application/json
+
+{ "nota_final": 5.5 }
+
+### S-12 más de dos decimales  → 400
+PUT {{host}}/api/detalles/{{idDetalleSantiago}}/calificacion
+Content-Type: application/json
+
+{ "nota_final": 3.456 }
+
+### Registrar nota válida  → 200 (aprobada = true)
+PUT {{host}}/api/detalles/{{idDetalleSantiago}}/calificacion
+Content-Type: application/json
+
+{ "nota_final": 4.25, "observacion": "Buen desempeño" }
+
+### No se puede retirar una inscripción ya calificada  → 422
+PATCH {{host}}/api/detalles/{{idDetalleSantiago}}/retirar
+
+### Periodo cerrado: no se modifican notas de 2026-1  → 422
+PUT {{host}}/api/detalles/4/calificacion
+Content-Type: application/json
+
+{ "nota_final": 3.5 }
+
+### Calificaciones del periodo 2026-2  → 200
+GET {{host}}/api/calificaciones?periodo=2
+
+### ======================== CONSULTAS (RF-13 y Anexo A) ========================
+
+### Historial académico con promedio ponderado (Laura)  → 200
+GET {{host}}/api/estudiantes/1/historial
+
+### Horario semanal de Laura en el periodo activo  → 200
+GET {{host}}/api/estudiantes/1/horario
+
+### Estudiantes por programa  → 200
+GET {{host}}/api/estudiantes?programa=1
+
+### Grupos del docente con sus estudiantes  → 200
+GET {{host}}/api/docentes/7/grupos?periodo=2
+
+### Catálogo de las 50 consultas (álgebra + SQL)  → 200
+GET {{host}}/api/consultas
+
+### Consulta 21 — estudiantes de Ingeniería de Sistemas
+GET {{host}}/api/consultas/21
+
+### Consulta 42 — división: estudiantes inscritos en TODOS los grupos {4, 6}
+GET {{host}}/api/consultas/42?grupos=4,6
+
+### Consulta 47 — grupos con cupo mayor a la capacidad del aula (auditoría)
+GET {{host}}/api/consultas/47
+
+### Consulta 50 — matrícula activa con algún detalle sin nota
+GET {{host}}/api/consultas/50

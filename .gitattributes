@@ -1,0 +1,4 @@
+# Finales de línea uniformes (LF) para Windows y la VM Linux
+* text=auto eol=lf
+*.png binary
+*.jpg binary
